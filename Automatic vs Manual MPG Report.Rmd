@@ -1,0 +1,188 @@
+---
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Automatic or Manual - Which is Better for MPG?
+Carlos Schuler
+
+## Executive Summary
+
+At **Motor Trends**, we have been asked many times the question:
+
+> *"Is an automatic or manual transmission better for MPG”*?
+
+We will address this question by exploring the relationship of MPG to multiple automobile variables, such as number of cylinders, vehicle weight, block shape, etc. This will allow us to quantify the MPG difference between automatic and manual transmissions.
+
+Although it would appear initially that a manual transmission yields better MPG, it turns out the answer is "*it depends*" on what other features the car has.
+
+## Data Exploration
+We will use the **mtcars** dataset, described in the Appendix. From this dataset, we can plot how MPG depends on transmission type ("code chunks" are shown in the Appendix):
+
+```{r intialize, include=FALSE}
+library(tidyverse)
+data("mtcars")
+mtcars <- as_tibble(mtcars)
+mtcarsF<-mtcars
+mtcarsF$cyl <-  factor(mtcarsF$cyl)
+mtcarsF$vs <-   factor(mtcarsF$vs,labels = c("V block","S block"))
+mtcarsF$am <-   factor(mtcarsF$am,labels = c("Automatic","Manual"))
+mtcarsF$gear <- factor(mtcarsF$gear)
+mtcarsF$carb <- factor(mtcarsF$carb)
+wtMedian <- median(mtcarsF$wt)
+lightWeight=paste("<",wtMedian)
+heavyWeight=paste(">",wtMedian)
+mtcarsF <- mtcarsF %>% mutate(wtQ=factor(ntile(wt,2),labels=c(lightWeight,heavyWeight)))
+rownames(mtcarsF)<-rownames(mtcars)
+mtcarsF
+```
+```{r mpgPlot,fig.height=2, fig.width=2.5, echo=FALSE,fig.align="center"}
+ggplot(mtcarsF, aes(x=am,y=mpg)) +
+        geom_boxplot(fill="lightblue") +
+        labs(x="Transmission Type", y="MPG")
+```
+
+From this figure, it would appear that a manual transmission results in better MPG. Things look diferent, however, if we group the data by number of cylinders, or by vehicle weight:
+
+```{r mpgPlot2,fig.height=2, echo=FALSE,warning=FALSE, message=FALSE,fig.align="center"}
+p2 <- ggplot(mtcarsF, aes(x=am,y=mpg)) +
+        geom_boxplot(aes(fill=factor(cyl))) +
+        labs(x="Transmission Type", y="MPG", fill = "# cylinders")
+
+p3 <- ggplot(mtcarsF, aes(x=am,y=mpg)) +
+        geom_boxplot(aes(fill=factor(wtQ))) +
+        labs(x="Transmission Type", y="MPG", fill="Weight")
+library(gridExtra)
+grid.arrange(p2,p3,nrow=1)
+```
+
+For 4-cyl vehicles, a manual transmission appears to yield higher MPG. However, that appears not to be the case for 8-cyl vehicles. Also, for lighter vehicles (weighing less than the median for the sample), the relationship between MPG and transmission type appears not to be significant (*note*: there is only one vehicle weighing higher than the median weight with an manual transmission, the **Maserati Bora**. Its MPG does not appear to be better than other vehicles in its weight class.)
+
+## Regression Model
+
+We will use stepwise (forward + backward) regression to find the subset of variables in the data set based on the *Akaike information criterion* (AIC) resulting in the best performing model (see  *http://www.sthda.com/english/articles/37-model-selection-essentials-in-r/154-stepwise-regression-essentials-in-r/*)
+
+\footnotesize
+```{r step, results= "hide"}
+mtcarsF <- mtcarsF %>% select(-wtQ) #delete the wtQ field we added earlier
+baseModel <- lm(data=mtcarsF, mpg ~ .)
+optimalModel <- step(baseModel, direction= "both")
+```
+\normalsize
+
+The step function sequentially eliminated *carb*, *gear*, *drat*, *disp*, *qsec*, and *vs* as model parameters. The start AIC was 76.4, and it was reduced to AIC=61.65; the final model is *mpg ~ cyl + hp + wt + am*. We anticipated *wt* and *am* as possible important factors in the model. We also anticipated (see Appendix) the elimination of several highly correlated variables. The final model parameters are shown in the Appendix. The coefficients for the model are: *`r coefMat<- cbind(names(optimalModel$coefficients),round(optimalModel$coefficients,2));string<- NULL; for(i in 1:nrow(coefMat)) {string<- paste0(string, coefMat[i,1],"=",coefMat[i,2],", ")}; substr(string,1,str_length(string)-2)`*. This model explains about 87% of the variance. The *`r coefMat[1,1]`* represents the predicted MPG for the base configuration: *4-cyl*, *hp=0*, *wt=0*, *automatic*. For the continuous variables, *hp* and *wt*, their coefficients represent the change in MPG per unit change in that variable, holding all other factors in the model constant. For the factor variables, *cyl* and *am*, their coefficients represent the change in MPG when the factor changes to that configuration from the base configuration. 
+
+Thus, the model predicts a change of `r coefMat[6,2]` in MPG when switching from *automatic* to *manual* transmission, that is an increase. However, this change is not to be statistical significant, at p=0.2 (see full model results in the Appendix.) Thus, according to this model, the difference in MPG is not significantly different from zero, when switching from *automatic* to *manual* transmission, **neither is BETTER according to this model!**
+
+We briefly explore the effect of interactions:
+\footnotesize
+```{r newModel}
+newModel <- lm(data=mtcarsF, mpg ~ cyl + hp + wt + am + wt*am)
+```
+\normalsize
+
+The coefficients for this new model are: *`r coefMat<- cbind(names(newModel$coefficients),round(newModel$coefficients,2));string<- NULL; for(i in 1:nrow(coefMat)) {string<- paste0(string, coefMat[i,1],"=",coefMat[i,2],", ")}; substr(string,1,str_length(string)-2)`*. This model explains about 88% of the variance. **This new model predicts an increase of `r coefMat[6,2]` in MPG switching from *automatic* to *manual* transmission**, significant at p=0.03. This matches our observation that automatic-cars are heavier with have lower MPG, while manual-cars are lighter and have higher MPG.  The *`r coefMat[7,1]`= `r coefMat[7,2]`* negative change in slope term shows that *wt* has a higher impact on MPG for manual cars than for cars with an automatic transmission.
+
+# Residuals and Diagnostics
+
+Residuals and other diagnostic plots are included in the Appendix for our final model, including interactions. No patterns are apparent in the residuals and the errors appear to be normally distributed. Data for **Maserati Bora** appears to have unusual leverage.  However, as this is the only sample of a *heavy* car with a *manual* transmission, we have decided to keep this sample in the dataset.
+
+# Conclusion and Limitations
+
+It appears that **Manual transmissions yield higher MPG in light cars, but not in heavy cars**, with the following caveats:
+
+* The sample size studied is small  
+* Today's vehicles have significant new technologies that may change the outcome  
+* The population selected is not random, and thus may be biased  
+* The analysis assumes t-distribtions for the models
+
+
+\pagebreak
+# APPENDIX
+
+Data was extracted from the 1974 Motor Trend magazine: MPG and 10 design and performance aspects for 32 1973-74 automobiles:
+
+\footnotesize
+| Field Name 	| Description 	|
+|-	|-	|
+| mpg 	| Miles/(US) gallon 	|
+| cyl 	| Number of cylinders 	|
+| disp 	| Displacement (cu.in.) 	|
+| hp 	| Gross horsepower 	|
+| drat 	| Rear axle ratio 	|
+| wt 	| Weight (1000 lbs) 	|
+| qsec 	| 1/4 mile time in seconds 	|
+| vs 	| Engine (0 = V-shaped, 1 = straight) 	|
+| am 	| Transmission (0 = automatic, 1 = manual) 	|
+| gear 	| Number of forward gears 	|
+| carb 	| Number of carburetors 	|
+\normalsize
+
+# Data Exploration
+
+The following code chunk generates the figures shown in the main report:
+\footnotesize
+```{r dummy, eval=FALSE}
+library(tidyverse); data("mtcars"); mtcars <- as_tibble(mtcars); mtcarsF<-mtcars
+mtcarsF$cyl <-  factor(mtcarsF$cyl); mtcarsF$vs <-   factor(mtcarsF$vs,labels = c("V block","S block"))
+mtcarsF$am <-   factor(mtcarsF$am,labels = c("Automatic","Manual")); mtcarsF$gear <- factor(mtcarsF$gear)
+mtcarsF$carb <- factor(mtcarsF$carb)
+wtMedian <- median(mtcarsF$wt); lightWeight=paste("<",wtMedian); heavyWeight=paste(">",wtMedian)
+mtcarsF <- mtcarsF %>% mutate(wtQ=factor(ntile(wt,2),labels=c(lightWeight,heavyWeight)))
+rownames(mtcarsF)<-rownames(mtcars)
+ggplot(mtcarsF, aes(x=am,y=mpg)) + geom_boxplot(fill="lightblue") + labs(x="Transmission Type", y="MPG")
+p2 <- ggplot(mtcarsF, aes(x=am,y=mpg)) + geom_boxplot(aes(fill=factor(cyl))) +
+        labs(x="Transmission Type", y="MPG", fill = "# cylinders")
+p3 <- ggplot(mtcarsF, aes(x=am,y=mpg)) + geom_boxplot(aes(fill=factor(wtQ))) +
+        labs(x="Transmission Type", y="MPG", fill="Weight")
+library(gridExtra); grid.arrange(p2,p3,nrow=1)
+```
+\normalsize
+
+Many of the fields in mtcars are highly correlated to each other:
+\footnotesize
+```{r correlation, fig.height=3,fig.align="center"}
+corr <- round(cor(mtcars), 1); library(ggcorrplot)
+ggcorrplot(corr, hc.order = TRUE, type = "lower", lab = TRUE, lab_size = 2, method="circle", 
+           colors = c("tomato2", "white", "springgreen3"), ggtheme=theme_bw)
+```
+\normalsize
+
+Eliminating fields that are highly cross-correlated, we can visualize some of the principal pair-wise relationships in the data:
+
+\footnotesize
+```{r pairs, fig.height=5,warning=FALSE, message=FALSE}
+library(GGally)
+mtc<-mtcarsF %>% select(mpg, cyl, wt, vs, am)
+ggpairs(mtc, lower = list(continuous = wrap("smooth", method = "lm", size=0.1)))
+```
+\normalsize
+
+# The optimal fit
+
+\footnotesize
+```{r}
+summary(optimalModel)
+```
+\normalsize
+
+# Fit including wt*am interaction
+
+\footnotesize
+```{r}
+summary(newModel)
+```
+\normalsize
+
+# Residuals for Final Model, including interaction
+\footnotesize
+```{r residuals, fig.height=4}
+par(mfrow=c(2, 2))
+plot(newModel)
+```
+\normalsize
+
+
